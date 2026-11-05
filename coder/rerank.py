@@ -1,22 +1,25 @@
-"""LLM reranking with Claude Haiku.
+"""LLM reranking (Claude Haiku primary, OpenAI fallback).
 
 Retrieval gets the gold code into the ~40-candidate shortlist (recall ceiling
 ~0.83 on dev); this step reads the note and the candidates' titles+definitions
 and picks the best 3 at the right specificity -- the part BM25 structurally
 can't do (depth: .0 vs .00 vs .Z, and ignoring ruled-out differentials).
 
-Design:
-- Claude Haiku 4.5 (fits the ~1c/note budget; ~$2.30 for 600 notes).
-- Robust parse: scan the reply for candidate codes in order; never trust free
-  text. Output is always a subset of the candidates, so codes stay valid.
-- Never raises to the caller: any API/parse failure returns [] and the pipeline
-  falls back to the retrieval top-3. The run must survive with no key at all.
-- Per-request timeout + capped retries so one slow call can't blow the 60-min
-  budget. The SDK honours HTTPS_PROXY (the grading box's only egress) by default.
+Provider policy: Anthropic is primary (Claude Haiku 4.5). We only fall back to
+OpenAI if no ANTHROPIC_API_KEY is present but an OPENAI_API_KEY is -- the brief
+says the grading box may supply either, so we must not assume a provider. The
+prompt and reply-parsing are provider-agnostic; only the API call differs.
+
+Robustness: any API/parse failure returns [] and the pipeline falls back to the
+retrieval top-3. Per-request timeout + capped retries protect the 60-min budget.
+Both the OpenAI and Anthropic Python SDKs honour HTTPS_PROXY (the grading box's
+only egress) by default.
 """
+import os
 import re
 
-MODEL = "claude-haiku-4-5"
+MODEL_ANTHROPIC = "claude-haiku-4-5"
+MODEL_OPENAI = os.environ.get("OPENAI_MODEL", "gpt-4o-mini")
 
 SYSTEM = (
     "You are an expert clinical coder assigning ICD-11 MMS codes to outpatient "
@@ -43,12 +46,44 @@ def _stem(code: str) -> str:
     return code.split("&")[0].split("/")[0].strip().upper()
 
 
-class Reranker:
-    def __init__(self, model: str = MODEL, timeout: float = 20.0) -> None:
-        from anthropic import Anthropic  # lazy: module imports even without the SDK
+class _AnthropicBackend:
+    name = "anthropic"
+
+    def __init__(self, timeout: float) -> None:
+        from anthropic import Anthropic  # lazy import
 
         self.client = Anthropic(timeout=timeout, max_retries=1)
-        self.model = model
+        self.model = MODEL_ANTHROPIC
+
+    def complete(self, system: str, user: str) -> str:
+        resp = self.client.messages.create(
+            model=self.model, max_tokens=120, system=system,
+            messages=[{"role": "user", "content": user}],
+        )
+        return "".join(b.text for b in resp.content if getattr(b, "type", None) == "text")
+
+
+class _OpenAIBackend:
+    name = "openai"
+
+    def __init__(self, timeout: float) -> None:
+        from openai import OpenAI  # lazy import
+
+        self.client = OpenAI(timeout=timeout, max_retries=1)
+        self.model = MODEL_OPENAI
+
+    def complete(self, system: str, user: str) -> str:
+        resp = self.client.chat.completions.create(
+            model=self.model, max_tokens=120,
+            messages=[{"role": "system", "content": system},
+                      {"role": "user", "content": user}],
+        )
+        return resp.choices[0].message.content or ""
+
+
+class Reranker:
+    def __init__(self, backend) -> None:
+        self.backend = backend
 
     def rerank(self, note: str, candidates: list[dict]) -> list[str]:
         """candidates: [{"code","title","definition"}]. Returns ordered codes
@@ -65,13 +100,7 @@ class Reranker:
             + "\n\nReturn the best up to 3 codes, best first, one per line."
         )
         try:
-            resp = self.client.messages.create(
-                model=self.model,
-                max_tokens=120,
-                system=SYSTEM,
-                messages=[{"role": "user", "content": user}],
-            )
-            text = "".join(b.text for b in resp.content if getattr(b, "type", None) == "text")
+            text = self.backend.complete(SYSTEM, user)
         except Exception:  # noqa: BLE001 — fall back to retrieval on any API error
             return []
         return self._parse(text, candidates)
@@ -81,10 +110,25 @@ class Reranker:
         by_stem = {_stem(c["code"]): c["code"] for c in candidates}
         out: list[str] = []
         for tok in _CODE_TOKEN.findall((text or "").upper()):
-            stem = _stem(tok.rstrip("."))
-            code = by_stem.get(stem)
+            code = by_stem.get(_stem(tok.rstrip(".")))
             if code and code not in out:
                 out.append(code)
                 if len(out) == 3:
                     break
         return out
+
+
+def make_reranker(timeout: float = 20.0):
+    """Build a reranker from whatever key is present (Anthropic preferred).
+    Returns None if no key / SDK is available -> retrieval-only path."""
+    if os.environ.get("ANTHROPIC_API_KEY"):
+        try:
+            return Reranker(_AnthropicBackend(timeout))
+        except Exception:  # noqa: BLE001
+            pass
+    if os.environ.get("OPENAI_API_KEY"):
+        try:
+            return Reranker(_OpenAIBackend(timeout))
+        except Exception:  # noqa: BLE001
+            pass
+    return None

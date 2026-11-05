@@ -71,6 +71,21 @@ cleanup). Score 14.6 -> 19.6 / 75. recall@40 ~0.70 sets the rerank ceiling.
 abbreviations). Next levers: note preprocessing (weight the A/P diagnosis line),
 multilingual embeddings for slice B. Candidate set k=40-50 for the reranker.
 
+### 2026-11-05 12:00 — Dual-provider reranker: Anthropic primary, OpenAI fallback
+**Decision:** Refactor the reranker behind a provider abstraction. `make_reranker`
+picks Anthropic (Claude Haiku 4.5) if `ANTHROPIC_API_KEY` is set, else OpenAI
+(`gpt-4o-mini`, overridable via `OPENAI_MODEL`) if `OPENAI_API_KEY` is set, else
+None (retrieval-only). Prompt and reply-parsing are provider-agnostic.
+**Why:** the brief says the box may supply `OPENAI_API_KEY` *and/or*
+`ANTHROPIC_API_KEY`. The earlier Anthropic-only gate would silently drop to
+retrieval-only (~26) if the box set only an OpenAI key. We still build on
+Anthropic (preferred), but no longer *assume* it is present — defensive against
+a provider-availability assumption we can't verify.
+**Evidence:** provider-selection unit test (none/anthropic/openai/both) passes;
+no-key path unchanged at 26.2; Docker builds with both SDKs pinned.
+**Revisit:** confirm the OpenAI fallback model id is still current if that path
+ever runs; measure both providers once a key is loaded.
+
 ### 2026-11-05 11:40 — LLM reranker pre-written (Claude Haiku); keyed path pending credit
 **Decision:** Add `coder/rerank.py`: retrieve 40 candidates, let Claude Haiku 4.5
 pick the best 3 from their titles+definitions, enforcing the specificity rules

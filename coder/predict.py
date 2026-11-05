@@ -7,9 +7,8 @@
 
 Hard contract: `predict` always returns up to 3 valid MMS codes, never raises.
 """
-import os
-
 from coder.retrieval import Retriever
+from coder.rerank import make_reranker
 
 # Safe default if retrieval yields nothing or the index fails to load (valid
 # MMS code: Malaria due to Plasmodium falciparum, unspecified).
@@ -21,16 +20,9 @@ _CANDIDATES = 40  # shortlist size handed to the reranker (dev recall@40 ~0.83)
 class Predictor:
     def __init__(self) -> None:
         self.retriever = Retriever()
-        self.reranker = None
-        # Only wire the reranker when a credential is present; otherwise the
-        # keyless retrieval path runs (brief requires a no-key answer for all).
-        if os.environ.get("ANTHROPIC_API_KEY"):
-            try:
-                from coder.rerank import Reranker
-
-                self.reranker = Reranker()
-            except Exception:  # noqa: BLE001 — degrade to retrieval-only
-                self.reranker = None
+        # Anthropic preferred, OpenAI fallback, None if no key -> retrieval-only.
+        # (Brief requires a valid answer for every note even with no key set.)
+        self.reranker = make_reranker()
 
     def _details(self, codes: list[str]) -> list[dict]:
         out = []
