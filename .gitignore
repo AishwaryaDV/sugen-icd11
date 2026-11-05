@@ -1,0 +1,19 @@
+# Secrets & local-only working docs (never commit)
+.env
+*.local.md
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Run mounts: keep the dirs, ignore files dropped/produced in them
+/in/*
+!/in/.gitkeep
+/out/*
+!/out/.gitkeep
+*.tmp
+
+# OS
+.DS_Store
