@@ -71,6 +71,26 @@ cleanup). Score 14.6 -> 19.6 / 75. recall@40 ~0.70 sets the rerank ceiling.
 abbreviations). Next levers: note preprocessing (weight the A/P diagnosis line),
 multilingual embeddings for slice B. Candidate set k=40-50 for the reranker.
 
+### 2026-11-05 11:10 — Note preprocessing: negation + A/P + abbreviations (dev 26.2/75)
+**Decision:** Preprocess each note into a retrieval query in this order:
+strip negated/excluded clauses -> weight the Assessment/Diagnosis segment ->
+expand clinical abbreviations. Order matters.
+**Options measured on dev recall@K (built index once, varied only the query):**
+- baseline:                         top1 .217 top3 .350  r@20 .617  r@40 .700
+- abbrev only:                      r@40 .767
+- A/P weight only:                  r@40 .800
+- neg+abbrev+ap (wrong order):      r@40 .767  (ap did nothing!)
+- neg -> ap -> abbrev (correct):    top1 .317 top3 .417  r@20 .750  r@40 .833
+**Evidence / the catch:** my first combined ordering ran A/P-weighting AFTER
+abbreviation expansion, which strips the ":" punctuation, so the "A:" / "Dx:"
+markers vanished and A/P-weighting silently became a no-op (combo stuck at .767
+instead of .800). Reordering so A/P-weighting runs while punctuation is intact
+unlocked it: recall@40 0.70 -> 0.83, score 19.6 -> 26.2 / 75. Robustness test
+still green. (This ordering bug is the README's "AI tooling was wrong, caught it".)
+**Revisit:** negation is clause-drop (coarse); "fever without chills" loses
+"fever". A span-level NegEx could recover those. Abbrev map is English-only
+(fine for slice A; slice B may need more). k=40-50 candidates for the reranker.
+
 ### 2026-11-05 10:40 — Robustness hardening against the >10% auto-reject
 **Decision:** Make the run unkillable short of a process kill: index built via
 `load_predictor()` that degrades to a constant predictor on failure; input

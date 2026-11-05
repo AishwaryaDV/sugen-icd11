@@ -17,6 +17,8 @@ import re
 
 from rank_bm25 import BM25Okapi
 
+from coder.preprocess import build_query
+
 _DATA = os.path.join(os.path.dirname(__file__), "..", "data", "who_enrichment.json")
 _TOKEN = re.compile(r"[a-z0-9]+")
 
@@ -60,10 +62,11 @@ class Retriever:
 
     def search(self, text: str, k: int = 50) -> list[tuple[str, float]]:
         """Return up to k (code, score) pairs, best first."""
-        # Cap query length: BM25 scoring is O(len(query) * n_docs), so a
-        # pathologically long note would otherwise blow the time budget. Real
-        # consult notes are a few hundred tokens; 1000 is generous headroom.
-        query = tokenize(text)[:1000]
+        # Preprocess the note into a retrieval query (negation stripping, A/P
+        # weighting, abbreviation expansion), then cap length: BM25 scoring is
+        # O(len(query) * n_docs), so a pathologically long note would otherwise
+        # blow the time budget. Real consult notes are a few hundred tokens.
+        query = tokenize(build_query(text))[:1000]
         scores = self.bm25.get_scores(query)
         top = heapq.nlargest(k, range(len(scores)), key=scores.__getitem__)
         return [(self.codes[i], float(scores[i])) for i in top]
