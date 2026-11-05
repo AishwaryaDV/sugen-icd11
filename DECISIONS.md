@@ -1,0 +1,66 @@
+# Decisions
+
+A running log of real choices, kept as we go. Newest at the bottom.
+
+---
+
+### 2026-11-05 09:40 — Architecture: retrieval + LLM rerank
+**Decision:** Two-stage pipeline — BM25 retrieval over WHO-enriched code text to
+shortlist candidates, then an LLM rerank to pick the best 3 at the right
+specificity. Plus a retrieval-only no-key fallback.
+**Options considered:** (a) LLM-only — feed the note and ask for a code blind:
+can't see 18,375 codes, hallucinates invalid codes. (b) Retrieval-only — cheap
+and keyless but can't calibrate depth (`.0` vs `.00` vs `.Z`). (c) Retrieve then
+rerank — retrieval handles recall over all codes, LLM handles the depth decision.
+**Evidence:** Dev golds are the *most specific* code the note supports (51/61 have
+a subcategory, 14 end in `.Z`); retrieval gets the family, the LLM sets the depth.
+**Revisit:** whether embeddings beat BM25 on the multilingual slice-B notes.
+
+### 2026-11-05 09:40 — Model: Claude Haiku 4.5, Anthropic only
+**Decision:** `claude-haiku-4-5` as the rerank model; no OpenAI.
+**Options:** Opus 4.8 (~$11/600 notes, over the $6 cap), Sonnet 5 (~$6.75, too
+tight), Haiku 4.5 (~$2.30, fits with headroom and is fast).
+**Evidence:** budget is $6 / 600 notes (~1c/note); ~3k input + ~150 output tokens
+per rerank on Haiku ≈ $0.0038/note.
+**Revisit:** spot-check a few hard notes against Sonnet 5 to see accuracy left
+on the table.
+
+### 2026-11-05 09:44 — WHO enrichment via offline Docker, release 2026-01
+**Decision:** Pull every code's definition / index terms / inclusions / synonyms /
+fully-specified name from the official WHO ICD-API served locally
+(`whoicd/icd-api`), release pinned to 2026-01, and ship the result in the repo.
+**Options:** (a) Cloud WHO API for all 18,375 codes — rate-limited, throttling
+risk on a time-boxed task. (b) Offline Docker — no rate limits, reproducible.
+Titles-only (no enrichment) was rejected: clinical notes share almost no words
+with bare titles, so retrieval would miss.
+**Evidence:** spot-check diff of 36 codes, local Docker vs cloud API = **0
+mismatches** — the offline pull is byte-identical to the authoritative source.
+Enrichment raised median searchable text from ~15 chars (title) to ~175 chars.
+Result: 18,375 codes, 13,041 fetched, 4,127 inherited, 1,207 orphan; 0 empty.
+**Revisit:** nothing outstanding; cloud key kept as a fallback.
+
+### 2026-11-05 09:44 — Residual (`.Z` / `.Y`) codes inherit parent enrichment
+**Decision:** Residual codes have no entity of their own (the WHO API 404s), so
+they inherit their nearest ancestor's enrichment, tagged "unspecified" / "other".
+Block-level residuals (no dot, e.g. `1A0Z`) fall back to their own descriptive
+title rather than borrowing a child's terms.
+**Options:** (a) Leave residuals with title only — weak match for common gold
+codes. (b) Inherit from parent — the leaf `.Z` codes (often the gold answer, 14/61
+dev golds) get the full family definition. (c) Aggregate children's terms into
+block residuals — rejected: pollutes the vague "unspecified block" code with a
+specific child's vocabulary, making it wrongly compete with the real code.
+**Evidence:** all 14 `.Z` dev golds resolve to full inherited enrichment
+(e.g. `1F40.Z` -> "Malaria due to Plasmodium falciparum, unspecified | A disease
+caused by... Plasmodium..."). Only block residuals stay title-only (~6.6%).
+**Revisit:** fetch WHO block entities for the ~1,200 orphan block residuals if
+retrieval misses them.
+
+### 2026-11-05 09:45 — Baseline-first pipeline to pass the mechanical gates early
+**Decision:** Ship a constant-valid-code baseline in the streaming JSONL pipeline
+from commit 1, so `docker compose run` produces a full output file before any
+model work. Predictions are written and flushed per line.
+**Options:** build retrieval first vs. prove the plumbing first. Plumbing first,
+because >10% missing predictions = auto-reject, so a green pipeline is the
+foundation everything else sits on.
+**Evidence:** brief's hard gates (clean-clone build, <10% blank, write-as-you-go).
+**Revisit:** replace the constant code with BM25 retrieval in Phase 2.
