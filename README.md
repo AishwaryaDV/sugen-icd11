@@ -5,103 +5,81 @@ best first.
 
 ## Run
 
-From a clean clone:
-
 ```
 docker compose run coder /in/notes.jsonl /out/predictions.jsonl
 ```
 
-Input: JSONL, one `{"id", "text"}` per line. Output: JSONL, one
-`{"id", "codes": [up to 3, best first]}` per line. Every input id appears in the
-output. The grading box supplies `ANTHROPIC_API_KEY` and/or `OPENAI_API_KEY`;
-with **no** key set the system still answers every note via the retrieval-only
-fallback (lower accuracy). Predictions are written as we go, and a wall-clock
-guard degrades to instant retrieval near the time cap so the run never times out.
+Input: JSONL `{"id", "text"}` per line. Output: JSONL `{"id", "codes":[≤3]}` per
+line; every input id appears. The box supplies `ANTHROPIC_API_KEY` and/or
+`OPENAI_API_KEY`; with no key, the retrieval-only fallback still answers every
+note. Predictions stream to disk as we go, and a wall-clock guard degrades to
+instant retrieval near the time cap so the run never times out.
 
-## Approach
+## Approach — retrieve then rerank, keyless fallback at every step
 
-Three stages (retrieve → rerank), with a keyless fallback at every step:
+1. **Enrich** (build time): each of the 18,375 codes is expanded with its WHO
+   definition, synonyms, index terms, and inclusions. Bare titles barely match
+   real notes; this enrichment is what makes retrieval work.
+2. **Retrieve**: the note is preprocessed (drop ruled-out differentials, up-weight
+   the Assessment/Diagnosis line, expand abbreviations), then BM25 over the
+   enriched text returns ~40 candidates. With a key, one small LLM call first
+   extracts the likely diagnosis — bridging symptom-only notes ("burning pain
+   eased by food" → gastritis) and any language → English.
+3. **Rerank**: Claude Haiku 4.5 picks the best 3 at the right specificity — most
+   specific the note *supports*, the `.Z` unspecified variant when detail is
+   absent, never a guessed subtype.
 
-1. **Enrich** (build time) — each of the 18,375 codes is expanded with its WHO
-   definition, synonyms, index terms and inclusions. Titles alone barely match
-   real notes; the enrichment is what makes retrieval work.
-2. **Retrieve** — the note is preprocessed (strip ruled-out differentials,
-   up-weight the Assessment/Diagnosis line, expand clinical abbreviations), then
-   BM25 over the enriched text returns ~40 candidates. With a key, one small LLM
-   call first extracts the likely diagnosis to bridge symptom-only notes
-   ("burning pain eased by food" → gastritis) and any language → English.
-3. **Rerank** — Claude Haiku 4.5 picks the best 3 from the candidates at the
-   right specificity: most specific the note *supports*, the `.Z` unspecified
-   variant when the detail is absent, never a guessed subtype.
-
-No key / API error / timeout → return the retrieval top-3. Output is always a
-subset of valid MMS codes.
+No key / API error / timeout → retrieval top-3. Output is always valid MMS codes.
 
 ## Results
 
-- **Dev score (`score.py`, 60 notes): ~67 / 75** (66–69 across runs) — top-1
-  ~0.87–0.90, top-3 ~0.92. The score varies a couple of notes run-to-run because
-  the reranker LLM samples; verified from a clean clone via the exact grading
-  command (69.2/75 keyed on the final check). No-key fallback: 26.2 / 75.
-- **Estimated hidden score: ~82–86 / 100.** Slice A (same distribution) should
-  track dev at ~66–67/75. Slice B (different distribution, all chapters, not
-  always English) is estimated at ~18–20/25, grounded in the multilingual
-  measurement below (not just invented probes).
-- Well within the operating caps: **~21 min and ~$1.90 per 600 notes** (caps: 60
-  min, $6), 0 missing, 0 invalid codes.
+- **Dev (`score.py`, 60 notes): ~67/75** (66–69 across runs; top-1 ~0.88, top-3
+  ~0.92), verified from a clean clone via the exact command. No-key fallback:
+  26.2/75. The few-note wobble is reranker LLM sampling.
+- **Estimated hidden: ~82–86/100** — slice A tracks dev (~67/75); slice B
+  (different distribution, all chapters, not always English) ~18–20/25, grounded
+  in the multilingual test below.
+- Within all caps: **~23 min and ~$1.90 per 600 notes** (caps 60 min / $6), 0
+  missing, 0 invalid, runtime network = model APIs only.
 
 ## Data added
 
-WHO ICD-11 enrichment (definitions, synonyms, index terms, inclusions,
-fully-specified names) for every MMS 2026-01 code. Pulled from the **official WHO
-ICD-API run offline from its Docker image** (`whoicd/icd-api`, release pinned to
-2026-01) — no rate limits, fully reproducible, shipped in the repo
-(`data/who_enrichment.json`) so grading needs no network beyond the model API.
-Verified byte-identical to the WHO cloud API on a 36-code spot-check. Residual
-(`.Z`/`.Y`) codes have no entity of their own, so they inherit their parent's
-enrichment, tagged unspecified.
+WHO ICD-11 enrichment (definitions, synonyms, index/inclusion terms, FSNs) for
+every MMS 2026-01 code, pulled from the **official WHO ICD-API run offline from
+its Docker image** (`whoicd/icd-api`, release pinned to 2026-01) — no rate limits,
+reproducible, shipped in `data/who_enrichment.json` so grading needs no WHO
+access. Verified byte-identical to the WHO cloud API on a 36-code spot-check.
+Residual (`.Z`/`.Y`) codes have no entity of their own, so they inherit their
+parent's enrichment, tagged unspecified.
 
 ## How we evaluated beyond the 60 dev notes
 
-- **Per-note error analysis** (`score.py --per-note`) to separate retrieval-recall
+- **Per-note analysis** (`score.py --per-note`) to separate retrieval-recall
   misses from rerank/depth errors and target each.
-- **Back-translation of the real dev notes** (`data/eval_dev_fr.jsonl`,
-  `eval_dev_sw.jsonl`): the authentic 60 notes (real clinical language, real gold)
-  translated to French (all 60) and Swahili (20). Only the language changes, so
-  this *verifies* the "not always English" robustness on real data instead of
-  inventing it. Result: **French 62.5/75, Swahili 62.5/75** vs English ~67 — a
-  small ~5-point penalty, confirming genuine multilingual handling. This eval also
-  *caught a real bug*: the retrieval query under-weighted the English diagnosis
-  terms, so a foreign note's ~200 words of (to the English index) noise buried
-  them and many non-English notes retrieved junk. Fixed by weighting the diagnosis
-  terms ×15; French recall@40 0.82 → 0.88 and the French score 49.6 → 62.5, with
-  no English regression (67.1 held).
-- **A 12-note out-of-distribution probe set** (`data/sliceB_probes.jsonl`): notes
-  in chapters absent from the dev set (migraine, depression, otitis media, low
-  back pain, anaemia, appendicitis). All landed top-1/top-3, showing the retriever
-  generalises across chapters. This surfaced a general over-specification bug we
-  then fixed (coding a subtype the note doesn't state).
+- **Back-translation of the real dev notes** (`eval_dev_fr/sw.jsonl`): the
+  authentic 60 notes (real gold) translated to French (60) and Swahili (20), so
+  only language varies — verifying multilingual robustness on real data, not
+  invented notes. **French 62.5/75, Swahili 62.5/75** vs English ~67 (~5-pt
+  penalty).
+- **Out-of-distribution probes** (`sliceB_probes.jsonl`): notes in chapters absent
+  from dev (migraine, depression, otitis, back pain, anaemia…) — all land
+  top-1/top-3, confirming the retriever generalises across the code space.
 
 ## Where AI tooling was wrong and we caught it
 
-We measured after every change, which caught two silent failures the AI
-introduced:
+Measuring after every change caught two silent AI-introduced failures:
 
-1. **Preprocessing order.** The generated pipeline applied the transforms as
-   *abbreviation-expansion → A/P-weighting*. Abbreviation expansion strips
-   punctuation, deleting the `A:` / `Dx:` markers the A/P-weighting step relies
-   on, so A/P-weighting silently became a no-op. The tell: the combined config
-   scored *worse* than A/P-weighting alone (recall@40 0.767 vs 0.800). Reordering
-   so A/P-weighting runs while punctuation is intact lifted recall@40 from 0.70
-   to 0.83 and the dev score from 19.6 to 26.2.
-2. **An unsupported SDK parameter.** We added `temperature=0` to the reranker for
-   determinism. The installed `anthropic` SDK no longer accepts that kwarg, so it
-   raised on every call — caught by our per-call fallback, which quietly dropped
-   the whole run to the retrieval-only path (dev 26.2 instead of ~66). We caught
-   it immediately because the score fell to the no-key baseline and the output
-   became suspiciously deterministic. Reverted. (Lesson: a silent per-call
-   failure looks exactly like a valid run — only re-measuring reveals it.)
+1. **Preprocessing order.** The generated pipeline ran abbreviation-expansion
+   *before* A/P-weighting; expansion strips the `A:`/`Dx:` punctuation the latter
+   needs, so A/P-weighting became a silent no-op. Tell: the combined config scored
+   *worse* than A/P alone. Reordering lifted recall@40 0.70 → 0.83 (dev 19.6 →
+   26.2).
+2. **Unsupported SDK param.** An added `temperature=0` raised on every rerank call;
+   the per-call fallback swallowed it and the whole run silently dropped to
+   retrieval-only (26.2 vs ~67). Caught because the score fell to the no-key
+   baseline. (Likewise, the back-translation eval caught a query-weighting bug
+   that tanked non-English notes — invisible on the English dev set.)
 
 ## Hours spent
 
-~4–5 hours (including setup, data, development, evaluation, and this writeup).
+~4–5 hours (setup, data, development, evaluation, writeup).
