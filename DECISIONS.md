@@ -71,6 +71,20 @@ cleanup). Score 14.6 -> 19.6 / 75. recall@40 ~0.70 sets the rerank ceiling.
 abbreviations). Next levers: note preprocessing (weight the A/P diagnosis line),
 multilingual embeddings for slice B. Candidate set k=40-50 for the reranker.
 
+### 2026-11-05 14:00 — temperature=0 reverted (SDK dropped the param) — near-miss caught
+**Decision:** Tried `temperature=0` on both backends to kill the ~1-note run-to-run
+wobble. Reverted — the installed `anthropic==2.5.0` SDK no longer accepts a
+`temperature` kwarg (`TypeError: unexpected keyword argument 'temperature'`).
+**Why it mattered:** the kwarg raised on EVERY rerank call, which our per-call
+try/except caught and fell back to retrieval — so the whole run silently dropped
+to the no-key score (26.2 instead of ~66). Two readings: (1) the graceful-degrade
+design worked (no crash, still valid output); (2) left unnoticed it would have
+quietly cost ~40 points at grading. Caught immediately because we score after
+every change — the "deterministic 26.2" was the tell. Accepting the mild
+nondeterminism (averages out over 600 notes) instead.
+**Revisit:** none. Reinforces: always re-measure the keyed score from a clean
+clone before bundling, since a silent per-call failure looks like a valid run.
+
 ### 2026-11-05 13:45 — Clean-clone grading test + time guard + run-to-run variance
 **Decision:** Added a wall-clock guard (default 55 min, env MAX_RUNTIME_SECONDS):
 once reached, skip the LLM and finish remaining notes with instant retrieval so
