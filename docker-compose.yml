@@ -1,0 +1,14 @@
+services:
+  coder:
+    build: .
+    volumes:
+      - ./in:/in
+      - ./out:/out
+    # Pass credentials/proxy through from the host env if present (grading box
+    # supplies these). Absent => the no-key fallback path runs.
+    environment:
+      - ANTHROPIC_API_KEY
+      - OPENAI_API_KEY
+      - HTTPS_PROXY
+      - HTTP_PROXY
+      - NO_PROXY

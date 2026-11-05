@@ -1,0 +1,4 @@
+# Phase 0 baseline uses the standard library only.
+# Added as phases land:
+#   rank-bm25   (Phase 2 retrieval)
+#   anthropic   (Phase 4 LLM rerank)
