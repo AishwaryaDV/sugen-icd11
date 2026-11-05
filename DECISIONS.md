@@ -71,6 +71,20 @@ cleanup). Score 14.6 -> 19.6 / 75. recall@40 ~0.70 sets the rerank ceiling.
 abbreviations). Next levers: note preprocessing (weight the A/P diagnosis line),
 multilingual embeddings for slice B. Candidate set k=40-50 for the reranker.
 
+### 2026-11-05 12:20 — Reranker measured: dev 60.8/75, within time+cost caps
+**Decision:** Keep the Haiku reranker as the primary path (measured, not assumed).
+Added token-usage tracking to the backend for the cost gate.
+**Evidence (one measurement run on 60 dev notes, Claude Haiku 4.5):**
+- SCORE 26.2 -> **60.8 / 75**  (top1 .317 -> **.800**, top3 .417 -> **.833**)
+- time 1.36 s/note -> **13.6 min / 600** (cap 60)
+- tokens 169,406 in / 1,444 out -> **$1.77 / 600 notes** (cap $6)
+- 0 missing, 0 invalid.
+**Key read:** top3 (.833) == retrieval recall@40 (.833) — the reranker is
+near-perfect given its candidates; the bottleneck is now RETRIEVAL RECALL, not
+reranking. top1 (.800) close behind top3 => specificity calibration is working.
+**Revisit:** the score ceiling is the ~0.83 recall. Next gains come from Phase 5
+retrieval-recall levers (more/better candidates, embeddings), not prompt tuning.
+
 ### 2026-11-05 12:00 — Dual-provider reranker: Anthropic primary, OpenAI fallback
 **Decision:** Refactor the reranker behind a provider abstraction. `make_reranker`
 picks Anthropic (Claude Haiku 4.5) if `ANTHROPIC_API_KEY` is set, else OpenAI

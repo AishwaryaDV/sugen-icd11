@@ -54,12 +54,16 @@ class _AnthropicBackend:
 
         self.client = Anthropic(timeout=timeout, max_retries=1)
         self.model = MODEL_ANTHROPIC
+        self.in_tokens = 0
+        self.out_tokens = 0
 
     def complete(self, system: str, user: str) -> str:
         resp = self.client.messages.create(
             model=self.model, max_tokens=120, system=system,
             messages=[{"role": "user", "content": user}],
         )
+        self.in_tokens += resp.usage.input_tokens
+        self.out_tokens += resp.usage.output_tokens
         return "".join(b.text for b in resp.content if getattr(b, "type", None) == "text")
 
 
