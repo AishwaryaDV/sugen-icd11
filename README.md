@@ -39,10 +39,10 @@ subset of valid MMS codes.
 
 ## Results
 
-- **Dev score (`score.py`, 60 notes): ~66–67 / 75** — top-1 ~0.87, top-3 ~0.92.
-  The score varies by about one note run-to-run because the reranker LLM samples;
-  verified from a clean clone via the exact grading command (66.2/75 keyed).
-  No-key fallback: 26.2 / 75.
+- **Dev score (`score.py`, 60 notes): ~67 / 75** (66–69 across runs) — top-1
+  ~0.87–0.90, top-3 ~0.92. The score varies a couple of notes run-to-run because
+  the reranker LLM samples; verified from a clean clone via the exact grading
+  command (69.2/75 keyed on the final check). No-key fallback: 26.2 / 75.
 - **Estimated hidden score: ~82–86 / 100.** Slice A (same distribution) should
   track dev at ~66–67/75. Slice B (different distribution, all chapters, not
   always English) is estimated at ~18–20/25, grounded in the multilingual
