@@ -55,6 +55,22 @@ caused by... Plasmodium..."). Only block residuals stay title-only (~6.6%).
 **Revisit:** fetch WHO block entities for the ~1,200 orphan block residuals if
 retrieval misses them.
 
+### 2026-11-05 10:20 — BM25 retrieval: tuned indexing (dev 19.6/75)
+**Decision:** Retrieve candidates with BM25 over the enriched text, using
+stopword removal, label fields (title/FSN/synonyms/index terms/inclusions)
+weighted 3x over the definition prose, and reduced length penalty (b=0.3).
+`predict` returns the retrieval top-3 (also the no-key fallback).
+**Options measured on dev recall@K:**
+- full search_text, no stopwords (first cut): top1 .167 top3 .250, recall@20 .417
+- + stopwords: recall@20 .583  (biggest single win)
+- labels x3 + def + stopwords, b=0.3: top1 .217 top3 .350, recall@20 .617, @40 .700
+**Evidence:** stopwords alone lifted recall@20 by ~17 pts (conversational ambient
+notes were drowning the signal — "malaria" ranked its own parent code at 38 before
+cleanup). Score 14.6 -> 19.6 / 75. recall@40 ~0.70 sets the rerank ceiling.
+**Revisit:** ~30% of golds never retrieved (negation like "malaria excluded",
+abbreviations). Next levers: note preprocessing (weight the A/P diagnosis line),
+multilingual embeddings for slice B. Candidate set k=40-50 for the reranker.
+
 ### 2026-11-05 09:45 — Baseline-first pipeline to pass the mechanical gates early
 **Decision:** Ship a constant-valid-code baseline in the streaming JSONL pipeline
 from commit 1, so `docker compose run` produces a full output file before any

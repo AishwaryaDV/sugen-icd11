@@ -1,30 +1,28 @@
 """Prediction pipeline.
 
-Phase 0: a constant-code baseline so the end-to-end pipeline is green from the
-first commit and passes the mechanical gates (every id gets a valid code).
+Phase 2: BM25 retrieval over WHO-enriched code text. `predict` returns the
+retrieval top-3 (best first). This is also the no-key fallback path.
 
-Later phases replace `Predictor.predict` with:
-  1. BM25 retrieval over WHO-enriched code text  -> shortlist of candidates
-  2. LLM rerank (Claude Haiku) that picks the best 3 at the right specificity
-  3. A no-key fallback that returns the retrieval top-3
-
-The only hard contract: `predict` and `fallback` always return a list of valid
-MMS codes (strings), best first. Never raise to the caller.
+Later phases insert an LLM rerank between retrieval and the returned 3 to fix
+specificity (most specific the note supports; `.Z` when detail is absent). The
+hard contract stays: always return a list of valid MMS codes, never raise.
 """
+from coder.retrieval import Retriever
 
-# Placeholder baseline code — a real, valid MMS 2026-01 category.
-# (Malaria due to Plasmodium falciparum, unspecified.) Replaced in Phase 2+.
-_BASELINE = ["1F40.Z"]
+# Safe default if retrieval somehow yields nothing (valid MMS code).
+_FALLBACK = ["1F40.Z"]
 
 
 class Predictor:
     def __init__(self) -> None:
-        pass
+        self.retriever = Retriever()
 
     def predict(self, text: str) -> list[str]:
         """Return up to 3 MMS codes, best first, for a single note."""
-        return list(_BASELINE)
+        hits = self.retriever.search(text, k=20)
+        codes = [c for c, _ in hits[:3]]
+        return codes or list(_FALLBACK)
 
     def fallback(self) -> list[str]:
         """Always-available answer used when anything upstream fails."""
-        return list(_BASELINE)
+        return list(_FALLBACK)
