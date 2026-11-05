@@ -43,9 +43,9 @@ subset of valid MMS codes.
   The score varies by about one note run-to-run because the reranker LLM samples;
   verified from a clean clone via the exact grading command (66.2/75 keyed).
   No-key fallback: 26.2 / 75.
-- **Estimated hidden score: ~78–84 / 100.** Slice A (same distribution) should
+- **Estimated hidden score: ~82–86 / 100.** Slice A (same distribution) should
   track dev at ~66–67/75. Slice B (different distribution, all chapters, not
-  always English) is estimated at ~16–18/25, grounded in the multilingual
+  always English) is estimated at ~18–20/25, grounded in the multilingual
   measurement below (not just invented probes).
 - Well within the operating caps: **~21 min and ~$1.90 per 600 notes** (caps: 60
   min, $6), 0 missing, 0 invalid codes.
@@ -69,9 +69,13 @@ enrichment, tagged unspecified.
   `eval_dev_sw.jsonl`): the authentic 60 notes (real clinical language, real gold)
   translated to French (all 60) and Swahili (20). Only the language changes, so
   this *verifies* the "not always English" robustness on real data instead of
-  inventing it. Result: French 52.1/75, Swahili 60.0/75 — both well above the
-  26.2 no-key floor, confirming genuine multilingual handling, with a measured
-  ~14-point French penalty that anchors the slice-B estimate.
+  inventing it. Result: **French 62.5/75, Swahili 62.5/75** vs English ~67 — a
+  small ~5-point penalty, confirming genuine multilingual handling. This eval also
+  *caught a real bug*: the retrieval query under-weighted the English diagnosis
+  terms, so a foreign note's ~200 words of (to the English index) noise buried
+  them and many non-English notes retrieved junk. Fixed by weighting the diagnosis
+  terms ×15; French recall@40 0.82 → 0.88 and the French score 49.6 → 62.5, with
+  no English regression (67.1 held).
 - **A 12-note out-of-distribution probe set** (`data/sliceB_probes.jsonl`): notes
   in chapters absent from the dev set (migraine, depression, otitis media, low
   back pain, anaemia, appendicitis). All landed top-1/top-3, showing the retriever

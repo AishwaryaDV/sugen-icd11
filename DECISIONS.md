@@ -251,6 +251,27 @@ translated diagnosis). Measured ~14-pt French penalty now anchors the slice-B
 estimate instead of a guess.
 **Revisit:** Swahili set is 20 notes (subset); test Arabic/Portuguese if time.
 
+### 2026-11-05 14:50 — Query-weighting bug (non-English) found via back-translation, fixed
+**Decision:** Weight the English diagnosis-expansion ×15 (was ×3) in the retrieval
+query.
+**How it was found:** the French back-translation eval scored low (~50/75) and the
+tell was ~1/3 of French notes collapsing onto the SAME garbage codes
+(8A05.00/LD24.03/SS83). Tracing one end-to-end: the expansion was perfect English
+("Dysmenorrhea, primary") but the gold wasn't in the candidates — the retrieval
+query is note + expansion×3, and a ~200-token French note is pure noise to the
+English index, drowning the 6-token expansion, so BM25 matched French function
+words to the same junk every time.
+**Evidence (measured each variant):** French recall@40 note+exp×3 0.817, exp×15
+0.883, exp-only 0.883; English recall@40 0.983 / 0.967 / 0.933. exp×15 is the
+sweet spot — big French gain, negligible English cost. Confirmed end-to-end:
+French score 49.6 -> 62.5, English 67.1 held, Swahili 60.0 -> 62.5.
+**Why it matters:** this bug hit EVERY non-English note, i.e. a real chunk of the
+hidden slice B — and it was invisible on the English dev set. Only grounding the
+eval on real translated notes surfaced it. Validates back-translation over
+invented probes.
+**Revisit:** could retrieve on expansion and note separately and merge, instead
+of weighting; ×15 is simpler and measured-good.
+
 ### 2026-11-05 14:25 — Working method: measure after every change (no blind trust in AI)
 **Decision:** Treat `score.py` on the dev set (and recall@k for retrieval) as the
 gate on every change — nothing lands on the strength of "the AI wrote it, looks

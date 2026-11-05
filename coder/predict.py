@@ -50,7 +50,12 @@ class Predictor:
                 expansion = self.reranker.expand_diagnosis(text)
             except Exception:  # noqa: BLE001
                 expansion = ""
-            query = text + (" . " + (expansion + " ") * 3 if expansion else "")
+            # Weight the English expansion heavily. A non-English note is ~200
+            # foreign tokens that match the English index as noise; a light
+            # expansion weight (x3) gets drowned out and retrieval returns junk.
+            # x15 lets the English diagnosis dominate the query: French recall@40
+            # 0.82 -> 0.88 with only ~0.02 English cost.
+            query = text + (" . " + (expansion + " ") * 15 if expansion else "")
             cand = [c for c, _ in self.retriever.search(query, k=_CANDIDATES)]
             if not cand:
                 return list(FALLBACK_CODES)
