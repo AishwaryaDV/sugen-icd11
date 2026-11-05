@@ -56,6 +56,7 @@ class Retriever:
     def __init__(self, path: str = _DATA) -> None:
         with open(path, encoding="utf-8") as f:
             data = json.load(f)
+        self.data = data  # retained so the reranker can show candidate title+definition
         self.codes: list[str] = list(data.keys())
         corpus = [tokenize(_index_text(data[c])) for c in self.codes]
         self.bm25 = BM25Okapi(corpus, b=0.3)

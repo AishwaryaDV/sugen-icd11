@@ -1,28 +1,69 @@
-"""Prediction pipeline.
+"""Prediction pipeline: BM25 retrieval -> LLM rerank -> fallback.
 
-Phase 2: BM25 retrieval over WHO-enriched code text. `predict` returns the
-retrieval top-3 (best first). This is also the no-key fallback path.
+1. Retrieve a ~40-candidate shortlist with BM25 over WHO-enriched text.
+2. If an API key is present, Claude Haiku reranks the shortlist and picks the
+   best 3 at the right specificity.
+3. No key / API error / empty rerank -> return the retrieval top-3.
 
-Later phases insert an LLM rerank between retrieval and the returned 3 to fix
-specificity (most specific the note supports; `.Z` when detail is absent). The
-hard contract stays: always return a list of valid MMS codes, never raise.
+Hard contract: `predict` always returns up to 3 valid MMS codes, never raises.
 """
+import os
+
 from coder.retrieval import Retriever
 
 # Safe default if retrieval yields nothing or the index fails to load (valid
 # MMS code: Malaria due to Plasmodium falciparum, unspecified).
 FALLBACK_CODES = ["1F40.Z"]
 
+_CANDIDATES = 40  # shortlist size handed to the reranker (dev recall@40 ~0.83)
+
 
 class Predictor:
     def __init__(self) -> None:
         self.retriever = Retriever()
+        self.reranker = None
+        # Only wire the reranker when a credential is present; otherwise the
+        # keyless retrieval path runs (brief requires a no-key answer for all).
+        if os.environ.get("ANTHROPIC_API_KEY"):
+            try:
+                from coder.rerank import Reranker
+
+                self.reranker = Reranker()
+            except Exception:  # noqa: BLE001 — degrade to retrieval-only
+                self.reranker = None
+
+    def _details(self, codes: list[str]) -> list[dict]:
+        out = []
+        for c in codes:
+            entry = self.retriever.data.get(c, {})
+            enr = entry.get("enrichment") or {}
+            out.append({"code": c, "title": entry.get("title") or c,
+                        "definition": enr.get("definition") or ""})
+        return out
 
     def predict(self, text: str) -> list[str]:
         """Return up to 3 MMS codes, best first, for a single note."""
-        hits = self.retriever.search(text, k=50)
-        codes = [c for c, _ in hits[:3]]
-        return codes or list(FALLBACK_CODES)
+        cand = [c for c, _ in self.retriever.search(text, k=_CANDIDATES)]
+        if not cand:
+            return list(FALLBACK_CODES)
+
+        if self.reranker is not None:
+            try:
+                ranked = self.reranker.rerank(text, self._details(cand))
+            except Exception:  # noqa: BLE001 — never let rerank abort a note
+                ranked = []
+            if ranked:
+                # Fill up to 3 from retrieval order so we always return 3 valid
+                # codes even if the model named fewer.
+                final = list(ranked)
+                for c in cand:
+                    if len(final) >= 3:
+                        break
+                    if c not in final:
+                        final.append(c)
+                return final[:3]
+
+        return cand[:3]
 
     def fallback(self) -> list[str]:
         """Always-available answer used when anything upstream fails."""
@@ -30,8 +71,7 @@ class Predictor:
 
 
 class ConstantPredictor:
-    """Last-resort predictor if the index can't be built (corrupt data, OOM).
-    Guarantees the run still produces a valid line for every note."""
+    """Last-resort predictor if the index can't be built (corrupt data, OOM)."""
 
     def predict(self, text: str) -> list[str]:
         return list(FALLBACK_CODES)

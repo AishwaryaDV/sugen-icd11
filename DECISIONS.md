@@ -71,6 +71,23 @@ cleanup). Score 14.6 -> 19.6 / 75. recall@40 ~0.70 sets the rerank ceiling.
 abbreviations). Next levers: note preprocessing (weight the A/P diagnosis line),
 multilingual embeddings for slice B. Candidate set k=40-50 for the reranker.
 
+### 2026-11-05 11:40 — LLM reranker pre-written (Claude Haiku); keyed path pending credit
+**Decision:** Add `coder/rerank.py`: retrieve 40 candidates, let Claude Haiku 4.5
+pick the best 3 from their titles+definitions, enforcing the specificity rules
+(most specific supported; `.Z` when detail absent; ignore ruled-out
+differentials). Reply parsed by scanning for candidate codes in order, so output
+is always a valid subset; any failure returns [] and the pipeline falls back to
+the retrieval top-3. Per-request timeout 20s, max_retries 1 (time budget).
+**Status:** written and wired, but NOT yet measured with a key (API credit not
+loaded). The no-key path is verified unchanged: dev still 26.2/75, robustness
+green, parser unit-tested, Docker builds with `anthropic==2.5.0`.
+**Options:** structured outputs vs. scan-the-reply parsing — chose scanning
+(SDK-version-robust, forgiving of formatting, guarantees codes stay in the
+candidate set). Haiku over Sonnet/Opus for the $6/600-note cap.
+**Revisit:** measure dev top1/top3 and cost-per-note the moment credit lands;
+tune candidate count (k) and the prompt against the "right family, wrong depth"
+per-note bucket; consider a tiny thinking budget if depth calls need it.
+
 ### 2026-11-05 11:10 — Note preprocessing: negation + A/P + abbreviations (dev 26.2/75)
 **Decision:** Preprocess each note into a retrieval query in this order:
 strip negated/excluded clauses -> weight the Assessment/Diagnosis segment ->

@@ -1,3 +1,2 @@
 rank-bm25==0.2.2
-# Added as phases land:
-#   anthropic   (Phase 4 LLM rerank)
+anthropic==2.5.0
