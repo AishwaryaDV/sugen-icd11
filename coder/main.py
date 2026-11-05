@@ -14,12 +14,21 @@ line falls back instead of crashing.
 import json
 import os
 import sys
+import time
 
 from coder.predict import FALLBACK_CODES, load_predictor
+
+# Wall-clock budget for the whole run. The grading box allows 60 min for 600
+# notes; we stop using the LLM once this is reached and finish the remaining
+# notes with instant retrieval, so the run never times out (unfinished = 0).
+# Generous default (55 min) with a 3x measured headroom; override via env.
+MAX_RUNTIME_SECONDS = float(os.environ.get("MAX_RUNTIME_SECONDS", "3300"))
 
 
 def run(in_path: str, out_path: str) -> None:
     predictor = load_predictor()  # degrades to a constant predictor on failure
+    if hasattr(predictor, "deadline"):
+        predictor.deadline = time.monotonic() + MAX_RUNTIME_SECONDS
 
     out_dir = os.path.dirname(out_path)
     if out_dir:

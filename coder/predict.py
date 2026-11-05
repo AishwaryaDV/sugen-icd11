@@ -23,6 +23,10 @@ class Predictor:
         # Anthropic preferred, OpenAI fallback, None if no key -> retrieval-only.
         # (Brief requires a valid answer for every note even with no key set.)
         self.reranker = make_reranker()
+        # Optional wall-clock deadline (monotonic seconds). When set and passed,
+        # predict() skips the LLM and uses instant retrieval so the run always
+        # finishes within the time cap (an unfinished note scores 0).
+        self.deadline = None
 
     def _details(self, codes: list[str]) -> list[dict]:
         out = []
@@ -35,7 +39,10 @@ class Predictor:
 
     def predict(self, text: str) -> list[str]:
         """Return up to 3 MMS codes, best first, for a single note."""
-        if self.reranker is not None:
+        import time
+
+        time_ok = self.deadline is None or time.monotonic() < self.deadline
+        if self.reranker is not None and time_ok:
             # LLM diagnosis-extraction before retrieval bridges symptom-only
             # notes to the diagnosis name (BM25 can't infer it). Retrieve on the
             # note plus the expansion (weighted), then rerank.
