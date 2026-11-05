@@ -79,7 +79,7 @@ wobble. Reverted — the installed `anthropic==2.5.0` SDK no longer accepts a
 try/except caught and fell back to retrieval — so the whole run silently dropped
 to the no-key score (26.2 instead of ~66). Two readings: (1) the graceful-degrade
 design worked (no crash, still valid output); (2) left unnoticed it would have
-quietly cost ~40 points at grading. Caught immediately because we score after
+quietly halved accuracy at run time. Caught immediately because we score after
 every change — the "deterministic 26.2" was the tell. Accepting the mild
 nondeterminism (averages out over 600 notes) instead.
 **Revisit:** none. Reinforces: always re-measure the keyed score from a clean
@@ -235,3 +235,28 @@ because >10% missing predictions = auto-reject, so a green pipeline is the
 foundation everything else sits on.
 **Evidence:** brief's hard gates (clean-clone build, <10% blank, write-as-you-go).
 **Revisit:** replace the constant code with BM25 retrieval in Phase 2.
+
+### 2026-11-05 14:20 — Grounded multilingual eval via back-translating REAL dev notes
+**Decision:** Verify the "not always English" robustness on authentic data, not
+invented notes. Translate the real 60 dev notes to French (all 60) and Swahili
+(20) — real clinical content, real gold, only the language changed — and score.
+**Options:** (a) hand-write non-English probes (my earlier approach) — tests my
+imagination and risks wrong gold; (b) back-translate real notes — keeps authentic
+content and ground truth, isolates the language variable. Chose (b); it's the
+difference between asserting and measuring.
+**Evidence:** French 52.1/75, Swahili 60.0/75, vs English ~66/75 — both far above
+the 26.2 no-key floor, so the pipeline genuinely handles other languages (the LLM
+expansion/rerank steps carry it; the English BM25 index still fires off the
+translated diagnosis). Measured ~14-pt French penalty now anchors the slice-B
+estimate instead of a guess.
+**Revisit:** Swahili set is 20 notes (subset); test Arabic/Portuguese if time.
+
+### 2026-11-05 14:25 — Working method: measure after every change (no blind trust in AI)
+**Decision:** Treat `score.py` on the dev set (and recall@k for retrieval) as the
+gate on every change — nothing lands on the strength of "the AI wrote it, looks
+right." This log records the measured number for each step.
+**Why it earned its place:** it caught two silent AI-introduced failures that
+*looked* fine — the preprocessing-order no-op (combined config scored worse than
+one transform alone) and the unsupported `temperature` kwarg (run silently fell
+back to retrieval-only). Neither throws an error; only re-measuring exposed them.
+Every feature here was kept or rejected on a measured delta, not on vibes.

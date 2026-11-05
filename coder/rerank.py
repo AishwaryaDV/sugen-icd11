@@ -72,10 +72,6 @@ class _AnthropicBackend:
         self.out_tokens = 0
 
     def complete(self, system: str, user: str) -> str:
-        # NB: the anthropic SDK no longer accepts a `temperature` kwarg, so we
-        # can't force greedy decoding; the reranker is mildly nondeterministic
-        # (~1 note/60 wobble). Acceptable: it averages out over 600 notes, and
-        # any per-call error here falls back to retrieval anyway.
         resp = self.client.messages.create(
             model=self.model, max_tokens=120, system=system,
             messages=[{"role": "user", "content": user}],

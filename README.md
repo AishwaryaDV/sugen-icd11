@@ -43,10 +43,10 @@ subset of valid MMS codes.
   The score varies by about one note run-to-run because the reranker LLM samples;
   verified from a clean clone via the exact grading command (66.2/75 keyed).
   No-key fallback: 26.2 / 75.
-- **Estimated hidden score: ~80–85 / 100.** Slice A (same distribution) should
+- **Estimated hidden score: ~78–84 / 100.** Slice A (same distribution) should
   track dev at ~66–67/75. Slice B (different distribution, all chapters, not
-  always English) is estimated conservatively at ~17–20/25 from our own probes
-  (below).
+  always English) is estimated at ~16–18/25, grounded in the multilingual
+  measurement below (not just invented probes).
 - Well within the operating caps: **~21 min and ~$1.90 per 600 notes** (caps: 60
   min, $6), 0 missing, 0 invalid codes.
 
@@ -65,23 +65,39 @@ enrichment, tagged unspecified.
 
 - **Per-note error analysis** (`score.py --per-note`) to separate retrieval-recall
   misses from rerank/depth errors and target each.
-- **A 12-note slice-B probe set** (`data/sliceB_probes.jsonl`): 6 out-of-
-  distribution chapters absent from the dev set (migraine, depression, otitis
-  media, low back pain, anaemia, appendicitis) and 6 multilingual notes
-  (French/Swahili/Spanish, translated from known-gold cases). This confirmed the
-  pipeline is multilingual and generalises across chapters, and surfaced a general
-  over-specification bug we then fixed.
+- **Back-translation of the real dev notes** (`data/eval_dev_fr.jsonl`,
+  `eval_dev_sw.jsonl`): the authentic 60 notes (real clinical language, real gold)
+  translated to French (all 60) and Swahili (20). Only the language changes, so
+  this *verifies* the "not always English" robustness on real data instead of
+  inventing it. Result: French 52.1/75, Swahili 60.0/75 — both well above the
+  26.2 no-key floor, confirming genuine multilingual handling, with a measured
+  ~14-point French penalty that anchors the slice-B estimate.
+- **A 12-note out-of-distribution probe set** (`data/sliceB_probes.jsonl`): notes
+  in chapters absent from the dev set (migraine, depression, otitis media, low
+  back pain, anaemia, appendicitis). All landed top-1/top-3, showing the retriever
+  generalises across chapters. This surfaced a general over-specification bug we
+  then fixed (coding a subtype the note doesn't state).
 
-## One place AI tooling was wrong and we caught it
+## Where AI tooling was wrong and we caught it
 
-While adding note preprocessing, the AI-generated pipeline applied the transforms
-in the order *abbreviation-expansion → A/P-weighting*. Abbreviation expansion
-strips punctuation, which deleted the `A:` / `Dx:` markers the A/P-weighting step
-relies on — so A/P-weighting silently became a no-op. We caught it because the
-combined config scored *worse* than A/P-weighting alone (recall@40 0.767 vs
-0.800). Reordering so A/P-weighting runs while the punctuation is intact lifted
-recall@40 from 0.70 to 0.83 and the dev score from 19.6 to 26.2.
+We measured after every change, which caught two silent failures the AI
+introduced:
+
+1. **Preprocessing order.** The generated pipeline applied the transforms as
+   *abbreviation-expansion → A/P-weighting*. Abbreviation expansion strips
+   punctuation, deleting the `A:` / `Dx:` markers the A/P-weighting step relies
+   on, so A/P-weighting silently became a no-op. The tell: the combined config
+   scored *worse* than A/P-weighting alone (recall@40 0.767 vs 0.800). Reordering
+   so A/P-weighting runs while punctuation is intact lifted recall@40 from 0.70
+   to 0.83 and the dev score from 19.6 to 26.2.
+2. **An unsupported SDK parameter.** We added `temperature=0` to the reranker for
+   determinism. The installed `anthropic` SDK no longer accepts that kwarg, so it
+   raised on every call — caught by our per-call fallback, which quietly dropped
+   the whole run to the retrieval-only path (dev 26.2 instead of ~66). We caught
+   it immediately because the score fell to the no-key baseline and the output
+   became suspiciously deterministic. Reverted. (Lesson: a silent per-call
+   failure looks exactly like a valid run — only re-measuring reveals it.)
 
 ## Hours spent
 
-<!-- TODO: fill in -->
+~4–5 hours (including setup, data, development, evaluation, and this writeup).
