@@ -60,6 +60,10 @@ class Retriever:
 
     def search(self, text: str, k: int = 50) -> list[tuple[str, float]]:
         """Return up to k (code, score) pairs, best first."""
-        scores = self.bm25.get_scores(tokenize(text))
+        # Cap query length: BM25 scoring is O(len(query) * n_docs), so a
+        # pathologically long note would otherwise blow the time budget. Real
+        # consult notes are a few hundred tokens; 1000 is generous headroom.
+        query = tokenize(text)[:1000]
+        scores = self.bm25.get_scores(query)
         top = heapq.nlargest(k, range(len(scores)), key=scores.__getitem__)
         return [(self.codes[i], float(scores[i])) for i in top]

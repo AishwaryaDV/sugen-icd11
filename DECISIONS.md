@@ -71,6 +71,22 @@ cleanup). Score 14.6 -> 19.6 / 75. recall@40 ~0.70 sets the rerank ceiling.
 abbreviations). Next levers: note preprocessing (weight the A/P diagnosis line),
 multilingual embeddings for slice B. Candidate set k=40-50 for the reranker.
 
+### 2026-11-05 10:40 — Robustness hardening against the >10% auto-reject
+**Decision:** Make the run unkillable short of a process kill: index built via
+`load_predictor()` that degrades to a constant predictor on failure; input
+decoded with `errors="replace"`; every note wrapped so one bad line falls back;
+and a query-length cap in retrieval. Added `tests/test_robustness.py`.
+**Evidence:** a nasty-input test (empty / missing-field / huge / non-English /
+non-string / whitespace / invalid-UTF8 notes) crashed the run — an 80k-token
+"huge" note made BM25 `get_scores` O(len(query) * 18k docs) and hung past 2 min.
+Capping the query to 1000 tokens fixed it (3s, dev score unchanged at 19.6).
+All 9 id-bearing notes now get a valid line; malformed-JSON / non-object lines
+(no id) are skipped by design.
+**Options:** dedupe query tokens vs. hard length cap — chose the cap (preserves
+the Phase 2 tuning exactly for real notes, bounds the pathological case).
+**Revisit:** if real slice-B notes are long, consider weighting the tail (A/P)
+rather than truncating to the first 1000 tokens.
+
 ### 2026-11-05 09:45 — Baseline-first pipeline to pass the mechanical gates early
 **Decision:** Ship a constant-valid-code baseline in the streaming JSONL pipeline
 from commit 1, so `docker compose run` produces a full output file before any
