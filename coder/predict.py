@@ -35,11 +35,18 @@ class Predictor:
 
     def predict(self, text: str) -> list[str]:
         """Return up to 3 MMS codes, best first, for a single note."""
-        cand = [c for c, _ in self.retriever.search(text, k=_CANDIDATES)]
-        if not cand:
-            return list(FALLBACK_CODES)
-
         if self.reranker is not None:
+            # LLM diagnosis-extraction before retrieval bridges symptom-only
+            # notes to the diagnosis name (BM25 can't infer it). Retrieve on the
+            # note plus the expansion (weighted), then rerank.
+            try:
+                expansion = self.reranker.expand_diagnosis(text)
+            except Exception:  # noqa: BLE001
+                expansion = ""
+            query = text + (" . " + (expansion + " ") * 3 if expansion else "")
+            cand = [c for c, _ in self.retriever.search(query, k=_CANDIDATES)]
+            if not cand:
+                return list(FALLBACK_CODES)
             try:
                 ranked = self.reranker.rerank(text, self._details(cand))
             except Exception:  # noqa: BLE001 — never let rerank abort a note
@@ -54,8 +61,11 @@ class Predictor:
                     if c not in final:
                         final.append(c)
                 return final[:3]
+            return cand[:3]  # rerank failed/empty -> retrieval top-3
 
-        return cand[:3]
+        # No-key path: pure retrieval.
+        cand = [c for c, _ in self.retriever.search(text, k=_CANDIDATES)]
+        return cand[:3] or list(FALLBACK_CODES)
 
     def fallback(self) -> list[str]:
         """Always-available answer used when anything upstream fails."""

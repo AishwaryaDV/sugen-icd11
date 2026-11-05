@@ -39,6 +39,13 @@ SYSTEM = (
     "- Output only the chosen codes, best first, one per line. No other text."
 )
 
+EXPAND_SYS = (
+    "You are a clinical coder. Read the consult note and output the most likely "
+    "diagnosis as 1 to 3 short medical terms (the disease names a coder would look "
+    "up in ICD-11), comma-separated. These bridge a note that describes symptoms "
+    "to the diagnosis name. Output only the terms, no commentary."
+)
+
 _CODE_TOKEN = re.compile(r"[A-Z0-9][A-Z0-9./&-]*")
 
 
@@ -88,6 +95,15 @@ class _OpenAIBackend:
 class Reranker:
     def __init__(self, backend) -> None:
         self.backend = backend
+
+    def expand_diagnosis(self, note: str) -> str:
+        """Return short diagnosis terms for the note, or "" on failure. Used to
+        bridge symptom-only notes to the diagnosis name before retrieval (BM25
+        can't infer 'gastritis' from 'burning pain eased by food')."""
+        try:
+            return self.backend.complete(EXPAND_SYS, (note or "").strip()).strip()
+        except Exception:  # noqa: BLE001
+            return ""
 
     def rerank(self, note: str, candidates: list[dict]) -> list[str]:
         """candidates: [{"code","title","definition"}]. Returns ordered codes

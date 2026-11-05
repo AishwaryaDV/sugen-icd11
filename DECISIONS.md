@@ -71,6 +71,26 @@ cleanup). Score 14.6 -> 19.6 / 75. recall@40 ~0.70 sets the rerank ceiling.
 abbreviations). Next levers: note preprocessing (weight the A/P diagnosis line),
 multilingual embeddings for slice B. Candidate set k=40-50 for the reranker.
 
+### 2026-11-05 12:45 — LLM diagnosis-extraction before retrieval (dev 66.7/75)
+**Decision:** On the keyed path, call the LLM once to extract likely diagnosis
+terms from the note, then retrieve on note + expansion (weighted) before rerank.
+Bridges symptom-only notes to the diagnosis name — BM25 can't infer "gastritis"
+from "burning pain eased by food", and anatomy words ("great toe") bury the
+diagnosis ("gout") under injury codes. No-key path stays pure retrieval.
+**Evidence:** per-note analysis of the 10 top-3 misses showed they were all
+symptom->diagnosis / anatomy-noise retrieval failures, not rerank errors. A cheap
+10-note probe (~$0.003) recovered 9/10 missed golds into top-40. Wired in + one
+confirm run: top1 .800 -> **.867**, top3 .833 -> **.933**, score 60.8 -> **66.7/75**.
+Cost $1.77 -> $1.91 / 600 (expansion input is just the note — tiny); time 13.6 ->
+20.6 min / 600. Both well within caps. No-key path unchanged at 26.2.
+**Options:** HyDE-style hypothetical-doc vs. short diagnosis terms — chose terms
+(cheaper, directly matches WHO titles/index-terms). Semantic embeddings were the
+alternative but can't do symptom->diagnosis *inference* (it's reasoning, not
+similarity), and would add a shipped model.
+**Revisit:** dev-044 still missed (hypoglycaemia-in-diabetes — specific combo
+code ranks below pure hypoglycaemia); the 2 remaining depth (.Z) errors; measure
+on slice-B-style probes.
+
 ### 2026-11-05 12:20 — Reranker measured: dev 60.8/75, within time+cost caps
 **Decision:** Keep the Haiku reranker as the primary path (measured, not assumed).
 Added token-usage tracking to the backend for the cost gate.
