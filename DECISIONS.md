@@ -71,6 +71,26 @@ cleanup). Score 14.6 -> 19.6 / 75. recall@40 ~0.70 sets the rerank ceiling.
 abbreviations). Next levers: note preprocessing (weight the A/P diagnosis line),
 multilingual embeddings for slice B. Candidate set k=40-50 for the reranker.
 
+### 2026-11-05 13:15 — Slice-B probes + over-specification fix (dev 67.1, probes 60.4)
+**Decision:** Built a 12-note slice-B probe set — 6 out-of-distribution chapters
+(06/08/10/21/03 + 13) and 6 multilingual notes (French/Swahili/Spanish, translated
+from known-gold cases) — to estimate the hidden slice and catch collapse. Then
+strengthened the rerank prompt's specificity rules against OVER-specification
+(decision procedure + teaching examples: pneumonia-no-organism -> .Z not bacterial;
+appendicitis-no-peritonitis -> plain code not the variant).
+**Evidence:**
+- Multilingual WORKS: FR/SW/ES notes land top-1 — the expansion LLM bridges any
+  language to an English diagnosis, so the English BM25 index still fires. No
+  separate translation code needed.
+- OOD chapters WORK: migraine(08)/depression(06)/otitis(10)/LBP(21)/anaemia(03),
+  all unseen in dev, land top-1. Retrieval+rerank generalise across the code space.
+- The one recurring error was general over-specification (guessing organism/
+  severity/peritonitis the note didn't state) — same root cause as dev-004/028.
+  Stronger prompt: dev 66.7 -> 67.1 (top1 .867 -> .883), probes 58.3 -> 60.4
+  (top3 .833 -> .917). Helps both slices; principled, not overfit.
+**Revisit:** probe set is small (12) and self-authored — directional, not a precise
+slice-B score. Real slice B may be harder; keep the README estimate conservative.
+
 ### 2026-11-05 12:45 — LLM diagnosis-extraction before retrieval (dev 66.7/75)
 **Decision:** On the keyed path, call the LLM once to extract likely diagnosis
 terms from the note, then retrieve on note + expansion (weighted) before rerank.
