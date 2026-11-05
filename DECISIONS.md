@@ -71,6 +71,25 @@ cleanup). Score 14.6 -> 19.6 / 75. recall@40 ~0.70 sets the rerank ceiling.
 abbreviations). Next levers: note preprocessing (weight the A/P diagnosis line),
 multilingual embeddings for slice B. Candidate set k=40-50 for the reranker.
 
+### 2026-11-05 13:45 — Clean-clone grading test + time guard + run-to-run variance
+**Decision:** Added a wall-clock guard (default 55 min, env MAX_RUNTIME_SECONDS):
+once reached, skip the LLM and finish remaining notes with instant retrieval so
+the run never exceeds the 60-min cap. Then ran the FULL grading flow from a fresh
+`git clone` of the GitHub repo, exactly as graders will.
+**Evidence (clean clone, exact command `docker compose run coder /in /out`):**
+- no-key: builds, 60/60 lines, 26.2/75, 0 missing/invalid — passes the auto-reject
+  gate with no credentials.
+- with-key (injected via env, as graders do): 60/60 lines, 66.2/75.
+- `.env` correctly absent from the clone (no secret leak).
+**Findings:**
+1. Score varies ~66-67/75 run-to-run (one note) — the reranker LLM samples and is
+   not deterministic. README reports a range, not false precision.
+2. Harness gotcha (mine, not the code's): a killed `docker compose run` leaves a
+   detached container; a second overlapping run to the same mounted output file
+   interleaves writes and corrupts it. Grading runs once, so not a real risk, but
+   noted. Cleaned up with `docker rm -f`.
+**Revisit:** nothing blocking; ready for deliverables (README, hours, bundle).
+
 ### 2026-11-05 13:15 — Slice-B probes + over-specification fix (dev 67.1, probes 60.4)
 **Decision:** Built a 12-note slice-B probe set — 6 out-of-distribution chapters
 (06/08/10/21/03 + 13) and 6 multilingual notes (French/Swahili/Spanish, translated
